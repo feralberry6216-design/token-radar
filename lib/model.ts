@@ -12,10 +12,18 @@
 //
 //   implied = TVL x category multiple x growth factor x maturity factor x breadth factor
 //
-//   category multiple  what one dollar of TVL is worth as FDV for this kind of protocol, set from
-//                      how tokenised peers of the same category trade: fee businesses whose value
-//                      is not the deposits themselves (curators, allocators, launchpads) score
-//                      high; pass-through wrappers (liquid staking) score low.
+//   category multiple  what one dollar of TVL is worth as FDV for this kind of protocol. Where
+//                      the snapshot holds at least five tokenised peers of a category, the
+//                      multiple IS how those peers trade: their median market cap per $1 of TVL
+//                      (Lending 0.132, Dexs 0.342, Yield 0.191, RWA 0.275, Basis Trading 0.654 —
+//                      measured on this snapshot, not asserted). Categories with fewer tokenised
+//                      peers keep a judgement multiple. One business type is priced by its own
+//                      rule instead of its category: curators and capital allocators, whose
+//                      reported TVL is third-party assets under management sitting inside host
+//                      protocols (and counted in those hosts' TVL too). They earn management and
+//                      performance fees on that AUM — fee income of roughly 0.5–2% of AUM a year,
+//                      capitalised at 10–20×, lands at a few tenths of AUM — so they are priced
+//                      as asset managers at twice the lending median: 0.264.
 //   growth factor      clamp(1 + clamp(change_7d, -40, +60) / 100 x 1.8, 0.6, 2.1): a hot week is
 //                      momentum, a cold week a discount, both damped so one week cannot dominate.
 //   maturity factor    0.78 + 0.42 x min(age_days, 1460) / 1460: a protocol that has run for
@@ -24,9 +32,10 @@
 //   breadth factor     1 + 0.03 x min(chains - 1, 8): distribution across chains is worth a
 //                      premium, capped at eight extra chains.
 //
-// No protocol name is special-cased anywhere: the same five terms score every row, and the board
-// order is implied value descending, TVL descending, slug ascending — a total order, so two runs
-// of the program write byte-identical output.
+// The same five terms score every row; the only name-level rule in the model is the curator list
+// further down, which classifies a business type (vault curators filed under other categories),
+// never a ranking. The board order is implied value descending, TVL descending, slug ascending —
+// a total order, so two runs of the program write byte-identical output.
 
 /** One protocol record: exactly the ten fields the sealed snapshot carries. */
 export interface Protocol {
@@ -53,7 +62,7 @@ export interface Snapshot {
 
 /** The model's knobs, exported so the dashboard can print the exact formula it runs. */
 export const MODEL = {
-  version: 'launch-radar-2',
+  version: 'launch-radar-3',
   growth_weight: 1.8,
   growth_input_floor: -40,
   growth_input_cap: 60,
@@ -68,28 +77,34 @@ export const MODEL = {
   default_multiple: 1.0,
 };
 
-/** FDV per $1 of TVL by category: what a launch of this kind of protocol is priced against. */
+/**
+ * FDV per $1 of TVL by category: what a launch of this kind of protocol is priced against.
+ * Entries marked "calibrated" are the median market-cap/TVL of the category's tokenised peers in
+ * the sealed snapshot itself (sample size n≥5); the rest are judgement multiples kept because the
+ * snapshot holds too few tokenised peers to measure. Risk Curators and Onchain Capital Allocator
+ * carry the curator rule's multiple (see CURATOR_MULTIPLE below), not a category measurement.
+ */
 export const CATEGORY_MULTIPLES: Record<string, number> = {
   'Chain': 3.0,
   'Launchpad': 2.6,
   'Prediction Market': 2.4,
-  'Risk Curators': 2.2,
+  'Risk Curators': 0.264, // curator rule: 2 x the lending median (see CURATOR_MULTIPLE)
   'AI Agents': 2.2,
   'Decentralized AI': 2.0,
   'Derivatives': 1.8,
-  'Onchain Capital Allocator': 1.8,
-  'Dexs': 1.7,
+  'Onchain Capital Allocator': 0.264, // curator rule: 2 x the lending median (see CURATOR_MULTIPLE)
+  'Dexs': 0.342, // calibrated: median of 11 tokenised DEX peers
   'Payments': 1.6,
   'Privacy': 1.6,
   'Options': 1.4,
-  'RWA': 1.3,
+  'RWA': 0.275, // calibrated: median of 9 tokenised RWA peers
   'Synthetics': 1.3,
-  'Yield': 1.25,
+  'Yield': 0.191, // calibrated: median of 9 tokenised yield peers
   'Insurance': 1.2,
   'NFT Marketplace': 1.2,
-  'Lending': 1.15,
+  'Lending': 0.132, // calibrated: median of 15 tokenised lending peers
   'Yield Aggregator': 1.0,
-  'Basis Trading': 1.0,
+  'Basis Trading': 0.654, // calibrated: median of 7 tokenised basis-trading peers
   'CDP': 0.95,
   'Indexes': 0.9,
   'Stablecoin Issuer': 0.9,
@@ -131,6 +146,53 @@ export function categoryMultiple(category: string | null): number {
   return MODEL.default_multiple;
 }
 
+// ------------------------------------------------------------------ the curator rule
+//
+// A curator's TVL is not the curator's money: it is third-party assets under management, deposited
+// into vaults that sit inside host protocols (Morpho-style lending markets and the like), where
+// the same dollars are already counted in the host's own TVL. Pricing a curator per raw TVL the
+// way its category table once did (2.2x) therefore double-counts the assets and values the manager
+// above the platform that hosts it. What a curator actually owns is a fee stream — management and
+// performance fees of roughly 0.5–2% of AUM a year; capitalised at 10–20x earnings that is a few
+// tenths of AUM, the same zone as twice the rate the market pays per TVL dollar for the lending
+// venues themselves. So curators are priced as asset managers: CURATOR_MULTIPLE = 2 x the lending
+// peers' calibrated median (2 x 0.132 = 0.264) — if anything generous against the fee maths.
+// The rule fires on the two DefiLlama categories that are curator businesses outright, and on a
+// named list of curator businesses the snapshot files under other labels, so the classification
+// follows the business, not the filing.
+
+/** The curator multiple: twice the calibrated Lending median (0.132), from the fee maths above. */
+export const CURATOR_MULTIPLE = 0.264;
+
+/** Categories that are curator businesses by definition. */
+const CURATOR_CATEGORIES = new Set(['Risk Curators', 'Onchain Capital Allocator']);
+
+/** Curator businesses DefiLlama files under other categories (the board's curator-type names). */
+const CURATOR_SLUGS = new Set([
+  'steakhouse-financial',
+  'sentora-curator',
+  'gauntlet',
+  'veda',
+  'upshift',
+  'nonce-capital',
+  'rockawayx',
+  'hyperithm',
+  'k3-capital',
+  'clearstar',
+  'galaxy-curation',
+  'armitage-by-wintermute',
+]);
+
+/** Whether this protocol's business is curating other protocols' vaults for a fee. */
+export function isCurator(p: Protocol): boolean {
+  return (p.category !== null && CURATOR_CATEGORIES.has(p.category)) || CURATOR_SLUGS.has(p.slug);
+}
+
+/** The multiple one protocol is scored with: the curator rule first, then its category. */
+export function multipleFor(p: Protocol): number {
+  return isCurator(p) ? CURATOR_MULTIPLE : categoryMultiple(p.category);
+}
+
 const DAY_MS = 86_400_000;
 
 /** Whole days between the listing date and the snapshot date; null when either is unusable. */
@@ -154,7 +216,7 @@ export interface Factors {
 /** Score one pre-token protocol: its factors and its implied value in whole dollars. */
 export function score(p: Protocol, asOf: string): { implied: number; factors: Factors } {
   const age = ageDays(asOf, p.listed_at);
-  const multiple = categoryMultiple(p.category);
+  const multiple = multipleFor(p);
   const rawChange = p.change_7d === null ? 0 : p.change_7d;
   const change = Math.min(MODEL.growth_input_cap, Math.max(MODEL.growth_input_floor, rawChange));
   const growth = Math.min(MODEL.growth_cap, Math.max(MODEL.growth_floor, 1 + (change / 100) * MODEL.growth_weight));

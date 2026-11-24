@@ -144,11 +144,13 @@ function modelHtml() {
   const mults = Object.entries(R.multiples).sort((a, b) => b[1] - a[1])
     .map(([k, v]) => `<b>${esc(k)}</b> ${v.toFixed(2)}×`).join(' · ');
   return `<section class="model"><h2>HOW IMPLIED VALUE IS COMPUTED</h2>
-  <p><code>implied = TVL × category multiple × growth factor × maturity factor × breadth factor</code> — every term comes from the snapshot's own figures; no protocol is named or hand-picked anywhere in the model (version <code>${esc(R.model_version)}</code>).</p>
+  <p><code>implied = TVL × category multiple × growth factor × maturity factor × breadth factor</code> — every term comes from the snapshot's own figures (version <code>${esc(R.model_version)}</code>).</p>
   <p><b>Growth factor</b> clamps the 7-day TVL change to ${m.growth_input_floor}%…+${m.growth_input_cap}% and scales it by ${m.growth_weight}, bounded to ${m.growth_floor}×–${m.growth_cap}×.
      <b>Maturity factor</b> runs ${m.maturity_base}–${(m.maturity_base + m.maturity_span).toFixed(2)} over ${m.maturity_days} days since DefiLlama first tracked the protocol (unknown dates count as ${m.unknown_age_days} days): a long tokenless record is worth more.
      <b>Breadth factor</b> adds ${(m.breadth_per_chain * 100).toFixed(0)}% per extra chain, up to ${m.breadth_max_extra_chains}.</p>
   <p class="mults">Category multiples (FDV per $1 of TVL): ${mults} · anything unlisted ${m.default_multiple.toFixed(2)}×</p>
+  <p><b>Where the multiples come from.</b> For every category with at least five tokenised peers in the snapshot, the multiple is measured, not chosen: it is the median market cap per $1 of TVL at which those launched peers actually trade (lending 0.13×, DEXs 0.34×, yield 0.19×, RWA 0.28×, basis trading 0.65×). Categories with fewer tokenised peers keep an estimated multiple. The growth, maturity and breadth adjustments above apply on top in both cases.</p>
+  <p><b>Curators are priced as asset managers.</b> A vault curator's TVL is other people's money: assets under management sitting inside host protocols, where the same dollars are already counted in the host's own TVL. What the curator owns is a fee stream on that AUM — management and performance fees of roughly 0.5–2% of AUM a year — so curator and allocator rows are priced at 0.26× TVL, twice the lending median, rather than at a per-TVL rate of their own. The rule fires on the curator categories, plus a short named list of curator businesses the snapshot files under other categories.</p>
   <p>Click any row for its own arithmetic — the five factors behind its number — and the farm plan the radar writes for it.</p></section>`;
 }
 
